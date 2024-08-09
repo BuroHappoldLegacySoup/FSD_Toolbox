@@ -27,9 +27,14 @@ class HTMLToWordTableConverter:
     convert them to Word tables, and save them in a Word document.
     """
 
-    def __init__(self):
-        """Initialize the converter with a new Word document."""
-        self.doc = Document()
+    def __init__(self, doc_path: str):
+        """
+        Initialize the converter with an existing Word document.
+        
+        Args:
+            doc_path (str): The path to the existing Word document.
+        """
+        self.doc = Document(doc_path)
 
     @staticmethod
     def extract_table_after_heading(soup: BeautifulSoup, heading_text: str) -> str:
@@ -203,6 +208,12 @@ class HTMLToWordTableConverter:
         """
         return all(cell.text.strip() == '' for cell in row.cells)
 
+    def _delete_last_page_in_template(self):
+        for element in reversed(self.doc.element.body):
+            if element.tag.endswith('sectPr'):
+                self.doc.element.body.remove(element)
+                break
+
     def _apply_row_colors(self, word_table):
         """
         Apply the background color of the second cell to the remaining cells of each row.
@@ -239,6 +250,8 @@ class HTMLToWordTableConverter:
             large_html_content = file.read()
 
         soup = BeautifulSoup(large_html_content, 'html.parser')
+
+        self._delete_last_page_in_template()
 
         for table_info in table_info_list:
             table_html = self.extract_table_after_heading(soup, table_info.heading_text)

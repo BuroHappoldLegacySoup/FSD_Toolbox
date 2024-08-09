@@ -128,7 +128,7 @@ class DocumentWordReplacer:
         doc.save(temp_path)
 
         dir_path, filename = os.path.split(self.file_path)
-        modified_filename = f'modified_{filename}'
+        modified_filename = f'output_{filename}'
         modified_path = os.path.join(dir_path, modified_filename)
 
         self._replace_in_xml(temp_path, modified_path)

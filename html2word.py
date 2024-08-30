@@ -1,25 +1,19 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 from docx import Document
 from docx.shared import Inches
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from bs4 import BeautifulSoup
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.section import WD_ORIENTATION
+import os
+import re
+from PIL import Image
+import io
+from info import TableInfo, ImageInfo
 
-@dataclass
-class TableInfo:
-    """
-    Dataclass to store information about a table to be extracted and converted.
-    
-    Attributes:
-        heading_text (str): The text of the heading to search for in the HTML.
-        title (str): The title to be used for the table in the Word document.
-    """
-    heading_text: str
-    title: str
-
-class HTMLToWordTableConverter:
+class HTMLToWordConverter:
     """
     A class to convert HTML tables to Word document tables.
     
@@ -27,7 +21,7 @@ class HTMLToWordTableConverter:
     convert them to Word tables, and save them in a Word document.
     """
 
-    def __init__(self, doc_path: str):
+    def __init__(self, doc_path: str, html_path: str):
         """
         Initialize the converter with an existing Word document.
         
@@ -35,24 +29,117 @@ class HTMLToWordTableConverter:
             doc_path (str): The path to the existing Word document.
         """
         self.doc = Document(doc_path)
+        self.html_path = html_path
+        self.data_folder = f"{os.path.splitext(html_path)[0]}_data"
+        self.image_files: List[str] = []
+        self.images: List[ImageInfo] = []
+        with open(html_path, 'r', encoding='utf-8') as file:
+            self.soup = BeautifulSoup(file, 'html.parser')
+
+    def extract_image_files(self) -> None:
+        self.image_files = [f for f in os.listdir(self.data_folder) if f.endswith('.png')]
+        print(f"Found {len(self.image_files)} image files")
+
+    def extract_all_tables(self):
+        """
+        Extract all tables from the HTML file and add them to the Word document.
+        """
+        tables = self.soup.find_all('table')
+        for i, table in enumerate(tables):
+            # Find the nearest preceding heading
+            heading = table.find_previous(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
+            title = re.sub(r'^\d+(\.\d+)*\s*', '', heading.get_text(strip=True))
+            
+            # Create a new BeautifulSoup object with just this table
+            table_html = str(table)
+            self.create_word_table_from_html(table_html, title)
+            
+            # Add some space after each table
+            self.doc.add_paragraph()
+
+    def extract_captions(self) -> None:
+        with open(self.html_path, 'r', encoding='utf-8') as file:
+            soup = BeautifulSoup(file, 'html.parser')
+            img_tags = soup.find_all('img')
+            for img in img_tags[2:]:
+                src = img.get('src')
+                if src:
+                    file_name = os.path.basename(src)
+                    h2 = img.find_previous('h2')
+                    if h2:
+                        caption = re.sub(r'^[\d.]+ ', '', h2.text.strip())
+                        self.images.append(ImageInfo(file_name, caption))
+        print(f"Extracted {len(self.images)} image captions")
+
+    def add_images_to_word_document(self) -> None:
+        """
+        Add images and captions to an existing Word document.
+        """   
+        for image in self.images:
+            if image.filename in self.image_files:
+                # Add page break before new content
+                self.doc.add_page_break()
+                new_section = self.doc.add_section()
+
+                # Set properties for the new section
+                new_section.orientation = WD_ORIENTATION.LANDSCAPE
+                new_section.page_width = Inches(11)  # Standard letter size
+                new_section.page_height = Inches(8.5)
+                new_section.left_margin = Inches(1)
+                new_section.right_margin = Inches(1)
+                
+                img_path = os.path.join(self.data_folder, image.filename)
+                """with Image.open(img_path) as img:
+                    # Rotate the image 90 degrees counterclockwise
+                    rotated_img = img.rotate(90, expand=True)
+                    
+                    # Save the rotated image to a bytes buffer
+                    img_buffer = io.BytesIO()
+                    rotated_img.save(img_buffer, format=img.format)
+                    img_buffer.seek(0)"""
+                
+                # Add rotated image
+                
+                self.doc.add_picture(img_path, width=Inches(9))
+                last_paragraph = self.doc.paragraphs[-1] 
+                last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                # Add caption
+                p = self.doc.add_paragraph()
+                p.alignment = 1  # Center alignment
+                p.add_run(image.caption).italic = True
+
+        # Add final portrait section
+        final_section = self.doc.add_section()
+        final_section.orientation = WD_ORIENTATION.PORTRAIT
+        final_section.page_width = Inches(8.5)  # Standard letter size
+        final_section.page_height = Inches(11)
+        final_section.left_margin = Inches(1)
+        final_section.right_margin = Inches(1)
 
     @staticmethod
-    def extract_table_after_heading(soup: BeautifulSoup, heading_text: str) -> str:
-        """
-        Extract the HTML table that follows a specific heading.
-        
-        Args:
-            soup (BeautifulSoup): The BeautifulSoup object containing the HTML content.
-            heading_text (str): The text of the heading to search for.
-        
-        Returns:
-            str: The HTML string of the table if found, None otherwise.
-        """
-        heading = soup.find('h2', string=heading_text)
-        if heading:
-            target_table = heading.find_next('table')
-            if target_table:
-                return str(target_table)
+    def extract_table_after_heading(soup: BeautifulSoup, main_title: str, heading_text: str) -> str:
+        # Find the exact match for the main title (h1)
+        main_heading = soup.find('h1', string=lambda text: text and main_title in text)
+        if main_heading:
+            # Find the next h2 that contains the heading_text
+            heading = main_heading.find_next('h2', string=lambda text: text and heading_text in text)
+            if heading:
+                # Check if the next h2 is a subheading
+                next_h2 = heading.find_next('h2')
+                if next_h2:
+                    # Extract all content between the current h2 and the next h2
+                    content = []
+                    for sibling in heading.next_siblings:
+                        if sibling == next_h2:
+                            break
+                        content.append(str(sibling))
+                    content_str = ''.join(content)
+                    # Find the first table in this content
+                    soup_content = BeautifulSoup(content_str, 'html.parser')
+                    target_table = soup_content.find('table')
+                    if target_table:
+                        return str(target_table)
         return None
 
     @staticmethod
@@ -70,50 +157,24 @@ class HTMLToWordTableConverter:
             shading.set(qn('w:fill'), color_hex)
             cell_xml.get_or_add_tcPr().append(shading)
 
-    @staticmethod
-    def remove_table_borders(table):
-        """
-        Remove borders from the table.
-        
-        Args:
-            table: The Word table to remove borders from.
-        """
-        tbl = table._tbl
-        tblPr = tbl.tblPr
-        tblBorders = OxmlElement('w:tblBorders')
-        for border in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
-            border_element = OxmlElement(f'w:{border}')
-            border_element.set(qn('w:val'), 'none')
-            border_element.set(qn('w:space'), '0')
-            border_element.set(qn('w:sz'), '0')
-            tblBorders.append(border_element)
-        tblPr.append(tblBorders)
-
     def create_word_table_from_html(self, html_content: str, title: str):
-        """
-        Create a Word table from HTML content and add it to the document with a title.
-        
-        Args:
-            html_content (str): The HTML content of the table.
-            title (str): The title to be added before the table in the Word document.
-        """
         soup = BeautifulSoup(html_content, 'html.parser')
         table = soup.find('table')
+        if not table:
+            print(f"No table found for title: {title}")
+            return
         self.doc.add_heading(title, level=1)
-
         headers = table.find_all('tr')[0].find_all(['th', 'td'])
         max_columns = sum(int(th.get('colspan', 1)) for th in headers)
         rows = table.find_all('tr')
         num_rows = len(rows)
-
         word_table = self.doc.add_table(rows=num_rows, cols=max_columns)
         word_table.style = 'Table Grid'
-        self.remove_table_borders(word_table)
-
         self._fill_table_content(word_table, rows, max_columns)
         self._remove_empty_columns(word_table)
         self._remove_empty_rows(word_table)
         self._apply_row_colors(word_table)
+        #print(f"Created table: {title}")
 
     def _fill_table_content(self, word_table, rows, max_columns):
         """
@@ -238,48 +299,60 @@ class HTMLToWordTableConverter:
         """
         self.doc.save(filename)
 
-    def process_html_file(self, file_path: str, table_info_list: List[TableInfo]):
+    def process_html_file(self, table_info_list: Optional[List[TableInfo]] = None):
         """
-        Process an HTML file, extract tables, and create a Word document.
+        Process the HTML file to extract tables and add them to the Word document.
+        If table_info_list is provided, extract specific tables, otherwise extract all tables.
         
         Args:
-            file_path (str): The path to the HTML file to process.
-            table_info_list (List[TableInfo]): A list of TableInfo objects specifying the tables to extract.
+            table_info_list (Optional[List[TableInfo]]): A list of TableInfo objects specifying the tables to extract.
+                                                         If None, all tables will be extracted.
         """
-        with open(file_path, 'r', encoding='utf-8') as file:
-            large_html_content = file.read()
+        if table_info_list:
+            for table_info in table_info_list:
+                table_html = self.extract_table_after_heading(self.soup, table_info.main_title, table_info.heading_text)
+                if table_html:
+                    self.create_word_table_from_html(table_html, table_info.title)
+                else:
+                    print(f"No table found for heading: {table_info.heading_text}")
+        else:
+            self.extract_all_tables()
 
-        soup = BeautifulSoup(large_html_content, 'html.parser')
-
-        self._delete_last_page_in_template()
-
-        for table_info in table_info_list:
-            table_html = self.extract_table_after_heading(soup, table_info.heading_text)
-            if table_html:
-                self.create_word_table_from_html(table_html, table_info.title)
-
-        print(f"The Word document '{file_path}' was successfully processed.")
+    
 
 # Example usage
 if __name__ == "__main__":
-    converter = HTMLToWordTableConverter()
+    converter = HTMLToWordConverter(r"C:\Users\vmylavarapu\Desktop\Template.docx", r"C:\Users\vmylavarapu\Desktop\FSRG\pr1.html")
 
     # Define the tables to extract
-    table_info_list = [
+    """table_info_list_1 = [
         TableInfo('1.1 Materials', 'Materials'),
-        TableInfo('1.2 Surfaces', 'Surfaces'),
-        TableInfo('3.1 Nodal Supports', 'Nodal Supports'),
-        TableInfo('4.1 Line Supports', 'Line Supports'),
-        TableInfo('1.3 Sections', 'Cross sections'),
-        TableInfo('4.2 Line Hinges', 'Line Hinges'),
-        TableInfo('4.1 Member Hinges', 'Member Hinges'),
-        TableInfo('1.6 Members', 'Members'),
-        TableInfo('7.1 Load Cases', 'Load Cases')
+        TableInfo('1.6 Surfaces', 'Surfaces'),
+        TableInfo('2.1 Nodal Supports', 'Nodal Supports')
     ]
 
+    table_info_list_2 = [
+        TableInfo('1.2 Sections', 'Cross sections'),
+        TableInfo('4.1 Load Cases', 'Load Cases')
+    ]"""
+
     # Process the HTML file
-    converter.process_html_file(r"C:\Users\vmylavarapu\Desktop\pr.html", table_info_list)
+    table_info_list = [
+        TableInfo('Basic Objects', 'Materials', 'Materials'),
+        TableInfo('Basic Objects', 'Surfaces', 'Surfaces'),
+        TableInfo('Types for Nodes', 'Nodal Supports', 'Nodal Supports'),
+        TableInfo('Types for Lines', 'Line Supports', 'Line Supports'),
+        TableInfo('Basic Objects', 'Sections', 'Sections'),
+        TableInfo('Basic Objects', 'Materials', 'Members'),
+        ]
+    converter._delete_last_page_in_template()
+    #converter.process_html_file(table_info_list_1)
+    converter.process_html_file()
+    converter.extract_image_files()
+    converter.extract_captions()
+    converter.add_images_to_word_document()
+    #converter.process_html_file(table_info_list_2)
 
     # Save the Word document
-    converter.save('Output.docx')
+    converter.save(r"C:\Users\vmylavarapu\Downloads\Output.docx")
     print("The Word document 'Output.docx' was successfully created.")

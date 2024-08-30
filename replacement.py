@@ -102,13 +102,16 @@ class DocumentWordReplacer:
                         buffer = content.encode('utf-8')
                     zout.writestr(item, buffer)
 
-    def replace_words(self) -> str:
+    def replace_words(self, folder_path) -> str:
         """
         Perform the word replacement process on the document.
 
         This method orchestrates the entire replacement process, including
         creating temporary files, calling other methods to perform replacements,
         and cleaning up temporary files.
+
+        Args:
+            folder_path (str): The path to the folder where the modified document will be saved.
 
         Returns:
             str: The path to the modified document.
@@ -127,15 +130,14 @@ class DocumentWordReplacer:
 
         doc.save(temp_path)
 
-        dir_path, filename = os.path.split(self.file_path)
-        modified_filename = f'output_{filename}'
-        modified_path = os.path.join(dir_path, modified_filename)
+        filename = os.path.basename(self.file_path)
+        modified_filename = 'Report_output.docx'
+        modified_path = os.path.join(folder_path, modified_filename)
 
         self._replace_in_xml(temp_path, modified_path)
 
         os.remove(temp_path)
 
-        print(f"Modified document saved as: {modified_path}")
         return modified_path
 
 # Usage example

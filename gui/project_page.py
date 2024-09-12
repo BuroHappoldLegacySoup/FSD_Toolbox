@@ -1,8 +1,7 @@
-from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget, QLabel, QLineEdit, QGridLayout, QGroupBox, QHBoxLayout, QFileDialog, QDialog, QRadioButton, QButtonGroup, QApplication
+from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget, QLabel, QLineEdit, QGridLayout, QGroupBox, QHBoxLayout, QFileDialog, QDialog, QRadioButton, QButtonGroup, QApplication, QComboBox, QMessageBox
 from PyQt5.QtCore import pyqtSignal
 from html2word import HTMLToWordConverter
 from replacement import DocumentWordReplacer, WordReplacement
-from html2png2word import ImageInfo, HTMLImageExtractor
 from RFEM.initModel import Client, Model, openFile
 import psutil, os
 from RFEM.Reports.printoutReport import PrintoutReport
@@ -80,6 +79,13 @@ class ProjectPage(QWidget):
         project_layout.addWidget(self.author_label)
         project_layout.addWidget(self.author)
 
+        self.printout_reports_label = QLabel('Number of printout reports in the RFEM6 model')
+        self.printout_reports = QComboBox()
+        self.printout_reports.addItems([str(i) for i in range(1, 11)])
+        self.printout_reports.setCurrentIndex(3)  # Default value is 4 (index 3)
+        project_layout.addWidget(self.printout_reports_label)
+        project_layout.addWidget(self.printout_reports)
+
         layout.addWidget(project_box)
 
         upload_rfem_model_button = QPushButton('Upload RFEM Model')
@@ -104,20 +110,72 @@ class ProjectPage(QWidget):
 
         layout.addWidget(self.save_button, layout.rowCount(), 0)
 
+
     def generate_rfem_report(self):
         folder_path = fm.create_folder_desktop("FSRG")
-        report_path_1 = folder_path + r"\pr1.html"
-        PrintoutReport.exportToHTML(1,report_path_1,self.model)
+        report_count = int(self.printout_reports.currentText())  # Set the expected number of reports here
+
+        report_paths = [
+            os.path.join(folder_path, f"pr{i+1}.html")
+            for i in range(report_count)
+        ]
+
+        temp_files = [
+            os.path.join(folder_path, f"report_op{i+1}.docx")
+            for i in range(report_count)
+        ]
+
+        word_path = fm.resource_path("Template.docx")
+        self.print_debug_info(word_path)
+
+        for i in range(report_count):
+            PrintoutReport.exportToHTML(i+1,report_paths[i],model=self.model)
+            self.wait_for_file_size_stabilization(report_paths[i])
+            if i == 0:
+                report = HTMLToWordConverter(word_path, report_paths[i])
+            else: 
+                report = HTMLToWordConverter(temp_files[i-1], report_paths[i])
+            report._delete_last_page_in_template()
+            report.process_html_file()
+            report.extract_image_files()
+            report.extract_captions()
+            report.add_images_to_word_document()
+            report.save(temp_files[i])
+
+            if i > 0:
+                os.remove(temp_files[i-1])
+
+        replacer = DocumentWordReplacer(temp_files[-1])
+        replacer.add_replacement('Projekttitel', self.project_title.text())
+        replacer.add_replacement('Berichttitel', self.report_title.text())
+        replacer.add_replacement('XXXX-BHE-XX-XX-XX-X-XXXX', self.doc_no.text())
+        replacer.add_replacement('Projektnummer', self.project_no.text())
+        replacer.add_replacement('[Author]', self.author.text())
+        modified_file_path = replacer.replace_words(folder_path)
+        os.remove(temp_files[-1])
         
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Information)
+        msg.setText("Report successfully generated.\nPlease check the folder named FSRG on your Desktop.")
+        msg.setWindowTitle("Report Generated!")
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec_()
+        self.model.clientModel.service.close_connection()
+        return modified_file_path
+
+    def wait_for_file_size_stabilization(self, file_path):
         previous_size = -1
         while True:
-            current_size = os.path.getsize(report_path_1)
-            if current_size > 0 and current_size == previous_size:
-                break
-            previous_size = current_size
+            if os.path.exists(file_path):
+                current_size = os.path.getsize(file_path)
+                if current_size > 0 and current_size == previous_size:
+                    break
+                previous_size = current_size
+            else:
+                print(f"File not found: {file_path}")
             time.sleep(1)
-        
-        word_path = fm.resource_path("Template.docx")
+
+    def print_debug_info(self, word_path):
         print("-------- Debug Information --------")
         print(f"Running as: {'Executable' if getattr(sys, 'frozen', False) else 'Script'}")
         print(f"Template.docx path: {word_path}")
@@ -126,70 +184,6 @@ class ProjectPage(QWidget):
         print(f"Temporary directory: {tempfile.gettempdir()}")
         print(f"sys._MEIPASS: {getattr(sys, '_MEIPASS', 'Not set - not running as PyInstaller bundle')}")
         print("------------------------------------")
-
-        temp_1 = folder_path + r"\report_op1.docx"
-        report_pt1 = HTMLToWordConverter(word_path , report_path_1)
-        report_pt1._delete_last_page_in_template()
-        report_pt1.process_html_file()
-        report_pt1.extract_image_files()
-        report_pt1.extract_captions()
-        report_pt1.add_images_to_word_document()
-
-        # Save the Word document
-        report_pt1.save(temp_1)
-
-        report_path_2 = folder_path + r"\pr2.html"
-        PrintoutReport.exportToHTML(2,report_path_2,self.model)
-        previous_size = -1
-        while True:
-            current_size = os.path.getsize(report_path_2)
-            if current_size > 0 and current_size == previous_size:
-                break
-            previous_size = current_size
-            time.sleep(1)
-        temp_2 = folder_path + r"\report_op2.docx"
-
-        report_pt2 = HTMLToWordConverter(temp_1,report_path_2)
-        report_pt2._delete_last_page_in_template()
-        report_pt2.process_html_file()
-        report_pt2.extract_image_files()
-        report_pt2.extract_captions()
-        report_pt2.add_images_to_word_document()
-        # Save the Word document
-        report_pt2.save(temp_2)
-        fm.delete_file(temp_1)
-
-        
-        report_path_3 = folder_path + r"\pr3.html"
-        PrintoutReport.exportToHTML(3,report_path_3,self.model)
-        previous_size = -1
-        while True:
-            current_size = os.path.getsize(report_path_3)
-            if current_size > 0 and current_size == previous_size:
-                break
-            previous_size = current_size
-            time.sleep(1)
-        temp_3 = folder_path + r"\report_op3.docx"
-        report_pt3 = HTMLToWordConverter(temp_2,report_path_3)
-        report_pt3._delete_last_page_in_template()
-        report_pt3.process_html_file()
-        report_pt3.extract_image_files()
-        report_pt3.extract_captions()
-        report_pt3.add_images_to_word_document()
-        report_pt3.save(temp_3)
-        fm.delete_file(temp_2)
-
-
-        replacer = DocumentWordReplacer(temp_3)
-        
-        replacer.add_replacement('Projekttitel', self.project_title.text())
-        replacer.add_replacement('Berichttitel', self.report_title.text())
-        replacer.add_replacement('XXXX-BHE-XX-XX-XX-X-XXXX', self.doc_no.text())
-        replacer.add_replacement('Projektnummer', self.project_no.text())
-        replacer.add_replacement('[Author]', self.author.text())
-        
-        modified_file_path = replacer.replace_words(folder_path)
-        fm.delete_file(temp_3)
 
     def upload_rfem_model(self):
         # Open a file dialog and let the user select a .rf6 file

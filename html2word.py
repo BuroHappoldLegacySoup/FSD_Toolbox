@@ -38,7 +38,6 @@ class HTMLToWordConverter:
 
     def extract_image_files(self) -> None:
         self.image_files = [f for f in os.listdir(self.data_folder) if f.endswith('.png')]
-        print(f"Found {len(self.image_files)} image files")
 
     def extract_all_tables(self):
         """
@@ -62,15 +61,17 @@ class HTMLToWordConverter:
         with open(self.html_path, 'r', encoding='utf-8') as file:
             soup = BeautifulSoup(file, 'html.parser')
             img_tags = soup.find_all('img')
-            for img in img_tags[2:]:
+            for img in img_tags:
                 src = img.get('src')
                 if src:
                     file_name = os.path.basename(src)
                     h2 = img.find_previous('h2')
                     if h2:
+                        # Remove the leading numbers and dots
                         caption = re.sub(r'^[\d.]+ ', '', h2.text.strip())
+                        # Remove "Statische Analyse" from the end of the caption
+                        caption = re.sub(r'\s*Statische Analyse\s*$', '', caption)
                         self.images.append(ImageInfo(file_name, caption))
-        print(f"Extracted {len(self.images)} image captions")
 
     def add_images_to_word_document(self) -> None:
         """
@@ -90,14 +91,6 @@ class HTMLToWordConverter:
                 new_section.right_margin = Inches(1)
                 
                 img_path = os.path.join(self.data_folder, image.filename)
-                """with Image.open(img_path) as img:
-                    # Rotate the image 90 degrees counterclockwise
-                    rotated_img = img.rotate(90, expand=True)
-                    
-                    # Save the rotated image to a bytes buffer
-                    img_buffer = io.BytesIO()
-                    rotated_img.save(img_buffer, format=img.format)
-                    img_buffer.seek(0)"""
                 
                 # Add rotated image
                 
@@ -174,7 +167,6 @@ class HTMLToWordConverter:
         self._remove_empty_columns(word_table)
         self._remove_empty_rows(word_table)
         self._apply_row_colors(word_table)
-        #print(f"Created table: {title}")
 
     def _fill_table_content(self, word_table, rows, max_columns):
         """
@@ -322,7 +314,7 @@ class HTMLToWordConverter:
 
 # Example usage
 if __name__ == "__main__":
-    converter = HTMLToWordConverter(r"C:\Users\vmylavarapu\Desktop\Template.docx", r"C:\Users\vmylavarapu\Desktop\FSRG\pr1.html")
+    converter = HTMLToWordConverter(r"C:\Users\vmylavarapu\Desktop\Template.docx", r"C:\Users\vmylavarapu\Desktop\FSRG\pr2.html")
 
     # Define the tables to extract
     """table_info_list_1 = [

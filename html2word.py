@@ -315,19 +315,6 @@ class HTMLToWordConverter:
 # Example usage
 if __name__ == "__main__":
     converter = HTMLToWordConverter(r"C:\Users\vmylavarapu\Desktop\Template.docx", r"C:\Users\vmylavarapu\Desktop\FSRG\pr2.html")
-
-    # Define the tables to extract
-    """table_info_list_1 = [
-        TableInfo('1.1 Materials', 'Materials'),
-        TableInfo('1.6 Surfaces', 'Surfaces'),
-        TableInfo('2.1 Nodal Supports', 'Nodal Supports')
-    ]
-
-    table_info_list_2 = [
-        TableInfo('1.2 Sections', 'Cross sections'),
-        TableInfo('4.1 Load Cases', 'Load Cases')
-    ]"""
-
     # Process the HTML file
     table_info_list = [
         TableInfo('Basic Objects', 'Materials', 'Materials'),
@@ -338,12 +325,12 @@ if __name__ == "__main__":
         TableInfo('Basic Objects', 'Materials', 'Members'),
         ]
     converter._delete_last_page_in_template()
-    #converter.process_html_file(table_info_list_1)
+    #converter.process_html_file(table_info_list)
     converter.process_html_file()
     converter.extract_image_files()
     converter.extract_captions()
     converter.add_images_to_word_document()
-    #converter.process_html_file(table_info_list_2)
+
 
     # Save the Word document
     converter.save(r"C:\Users\vmylavarapu\Downloads\Output.docx")
